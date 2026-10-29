@@ -5,8 +5,11 @@ import type { Position, Trade } from "../wallets/types.js";
 import type { Fill, LeaderSell, ReplRecord } from "./types.js";
 import type { RankingId } from "../ranking/rank.js";
 
+/** The tape reads a fill needs (an Oracle, or a fenced view of one). */
+export type Tape = Pick<Oracle, "tradesFrom" | "priorState" | "stateAt">;
+
 /** Fill for an action at time t: first trade at or after t, liquidity at that point, rug checks (R-A6). */
-export async function fillAt(oracle: Oracle, pool: string, t: number, minExitLiquiditySol: number, checkRug: boolean): Promise<Fill> {
+export async function fillAt(oracle: Tape, pool: string, t: number, minExitLiquiditySol: number, checkRug: boolean): Promise<Fill> {
   // One page usually covers the next 30s on a live pool; widen only if nothing traded (quiet or dead pool).
   let { rows, complete } = await oracle.tradesFrom(pool, t, 30);
   if (!rows.some((r) => r.poolPriced)) ({ rows, complete } = await oracle.tradesFrom(pool, t, 3600));
@@ -58,7 +61,7 @@ export function sellSchedule(pos: Position, buy: Trade, until: number): LeaderSe
       // Selling down to dust counts as a full exit (matches position closing in positions.ts).
       const frac = after <= peak * 0.01 ? 1 : sold / holding;
       if (e.side === "out") out.push({ t: e.t, frac, price: lastPrice, poolPrice: null, kind: "out" });
-      else out.push({ t: e.t, frac, price: e.sol / e.tokens, poolPrice: e.price, pool: e.pool });
+      else out.push({ t: e.t, frac, price: e.sol / e.tokens, poolPrice: e.price, pool: e.pool, reserveSol: e.poolQuoteReserveSol });
     }
     holding = Math.max(0, after);
   }

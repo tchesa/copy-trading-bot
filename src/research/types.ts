@@ -26,6 +26,8 @@ export interface LeaderSell {
   kind?: "sell" | "out";
   /** Pool the leader sold on (exits fill there, e.g. after a migration); absent = the buy's pool. */
   pool?: string | null;
+  /** Pool quote reserve (SOL) right after the leader's sell, from its own tx (absent on older records). */
+  reserveSol?: number | null;
 }
 
 /** Everything needed to re-simulate a follower of one leader buy, at any delay, without fetching. */

@@ -13,7 +13,9 @@ State: **closed (NO-GO)**, see `report.md`. Phase A on 8 of 25 weeks: copy trade
 - `pnpm baselines [--seeds 20] [--b2-seeds 5]` — B1–B5 and the §8.3 go/no-go table. B2 fetches tape for random tokens (online).
 - `pnpm size [--sizes 0.05,0.1,0.25,1] [--delays 0,5,15,60] [--methods S1,S2,S4] [--boot 2000]` — follower-size sensitivity with wallet-clustered bootstrap intervals (offline).
 - `pnpm check-data [--dir data/steps/<hash>] [--rugs 20]` — data-quality audit of cached steps (offline): positions above 100×, follower-at-0s vs leader consistency, hand-check of rug trades against the leader's later txs.
-- `pnpm feasibility [--boot 2000]` — copyability spec (`~/Downloads/copyability-score-spec.md`) Stage 0 on cached steps (offline): leader return vs 5 s delay cost per wallet-week, quadrants, stop rule, SVG scatter.
+- `pnpm feasibility [--boot 2000]` — copyability spec (`docs/copyability-score-spec.md`) Stage 0 on cached steps (offline): leader return vs 5 s delay cost per wallet-week, quadrants, stop rule, SVG scatter.
+- `pnpm coverage` — why cached replication fills were unreadable, per venue and leg (spec 5.5, offline).
+- `pnpm score --estimate` — Stage 1 credit estimate (offline dry run). `pnpm score` (= `pnpm study --methods S2,S5,S6 --label copyability`) — Stage 1: C and I on formation data (tape fenced at F1), S5/S6, eval replication of ≤ 20 buys/wallet for S2, S5, S6 and the random pool, under a hard 1M-credit cap counted from `data/stage1/<hash>/meta.json`; refuses to pull with uncommitted changes (R-P1). `--report-only` re-reports. Config is pre-registered in `src/score/config.ts`: changing it after the pull makes results exploratory.
 - Cache-only replay (no credits): `pnpm study --steps N --budget <credits already used>` — every real fetch throws `BudgetExceeded`; wallets that would need one are skipped (`unfetched`), unreadable tape is `missing` (never a rug) and those records are dropped at load.
 - `pnpm typecheck`, `pnpm test`.
 
@@ -24,7 +26,7 @@ Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is susta
 - `src/data/` — `helius.ts` (client + persistent credit meter + hard budget), `http.ts` (adaptive limiter, retries), `parse/` (venue-agnostic swap parser, pool state), `sample.ts` (discovery), `walletHistory.ts` (bot screen + history), `oracle.ts` (cached point-in-time tape: prices, liquidity, marks), `mints.ts` (point-in-time token state), `solusd.ts`, `programs.ts` (venue program ids, quote mints).
 - `src/db/db.ts` — node:sqlite schema (`swaps`, `discovery`, `pool_states`, `fetch_progress`, `credit_log`, `mints`, `sol_usd`).
 - `src/wallets/` — positions, metrics, exclusions, eligibility, crowding, trade loader.
-- `src/ranking/rank.ts` — S1–S4.
+- `src/ranking/rank.ts` — S1–S4. `src/score/` — copyability spec: C (`copyability.ts`, formation replication with leader-exit fills, lookahead `fence`), I (`impact.ts`), pre-registered `config.ts`. `src/research/stage1*.ts` — Stage 1 runner and report; `feasibility.ts` — Stage 0.
 - `src/research/` — pipeline (per step), replication (`replicate.ts` collects fills; `follower.ts` simulates; pure), study report + gates.
 - `src/strategy/` — Phase B params and entry filters (pure). `src/backtest/` — portfolio sim, metrics, walk-forward, sweep report. `src/baselines/` — B2. B1/B4/B5 live in `scripts/baselines.ts` on top of the walk-forward.
 - `test/` — vitest; `test/fixtures/venues.json` holds one recorded mainnet tx per venue.

@@ -9,6 +9,12 @@ import { buildStudyReport } from "../research/studyReport.js";
 import { gitCommit, writeReportFiles } from "../util/run.js";
 import { buildContext, commonOptions } from "./context.js";
 
+// `--methods S2,S5,S6`: the copyability spec's Stage 1 (scripts/score.ts) instead of Phase A.
+const mi = process.argv.indexOf("--methods");
+if (mi >= 0 && /S5|S6/.test(process.argv[mi + 1] ?? "")) {
+  await import("./score.js");
+  process.exit(0);
+}
 const { values } = parseArgs({ options: { ...commonOptions, steps: { type: "string" }, "report-only": { type: "boolean", default: false } } });
 const log = logger("study");
 const { ctx, from, to, costs, p } = buildContext(values);
