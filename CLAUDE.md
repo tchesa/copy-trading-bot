@@ -1,0 +1,53 @@
+# shadow-wallets
+
+Research harness for `copy-trading-requirements.md`: do some Solana wallets show persistent skill (H1), can a delayed follower still profit after costs and rugs (H2), and does ranking beat random selection (H3)? On-chain data only (Helius). No live or paper trading.
+
+State: see the latest `reports/*-study.md` (Phase A gate) and `reports/*-baselines.md` (§8.3 go/no-go). `report.md` has the write-up.
+
+## Commands
+
+- `pnpm spike` — R-D0 data-source note: venue activity, parse coverage per venue, dead-token history check, cost extrapolation.
+- `pnpm backfill --from 2026-03-28 --to 2026-10-27 [--budget 3000000] [--per-day 12]` — SOL/USD hourly + discovery sample (12 random 100-tx chunks per venue per day). Resumable per venue-day.
+- `pnpm study [--steps N] [--params JSON] [--eligibility JSON] [--costs JSON] [--offline] [--report-only] [--label]` — Phase A. Runs each weekly walk-forward step (discovery → screen → wallet histories → formation metrics → exclusions/eligibility → crowding → S1–S4 → eval-window persistence → replication of leader buys), caches each step to `data/steps/<hash>/step-NN.json`, then writes `reports/<ts>-study.md|json` with gates G1–G3.
+- `pnpm sweep [--ranking S1..S4] [--delay 5] [--grid JSON] [--base-params JSON] [--quick] [--train 8] [--label]` — Phase B walk-forward at every delay, offline from cached steps. Prints a `SUMMARY` line.
+- `pnpm baselines [--seeds 20] [--b2-seeds 5]` — B1–B5 and the §8.3 go/no-go table. B2 fetches tape for random tokens (online).
+- `pnpm check-data [--dir data/steps/<hash>] [--rugs 20]` — data-quality audit of cached steps (offline): positions above 100×, follower-at-0s vs leader consistency, hand-check of rug trades against the leader's later txs.
+- Cache-only replay (no credits): `pnpm study --steps N --budget <credits already used>` — every real fetch throws `BudgetExceeded`; wallets that would need one are skipped (`unfetched`), unreadable tape is `missing` (never a rug) and those records are dropped at load.
+- `pnpm typecheck`, `pnpm test`.
+
+Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is sustainable for `getTransactionsForAddress`), `DOWNLOAD_CONCURRENCY`, `DB_PATH`, `LOG_LEVEL`. Never print the key; `redact()` strips it from logged URLs.
+
+## Layout
+
+- `src/data/` — `helius.ts` (client + persistent credit meter + hard budget), `http.ts` (adaptive limiter, retries), `parse/` (venue-agnostic swap parser, pool state), `sample.ts` (discovery), `walletHistory.ts` (bot screen + history), `oracle.ts` (cached point-in-time tape: prices, liquidity, marks), `mints.ts` (point-in-time token state), `solusd.ts`, `programs.ts` (venue program ids, quote mints).
+- `src/db/db.ts` — node:sqlite schema (`swaps`, `discovery`, `pool_states`, `fetch_progress`, `credit_log`, `mints`, `sol_usd`).
+- `src/wallets/` — positions, metrics, exclusions, eligibility, crowding, trade loader.
+- `src/ranking/rank.ts` — S1–S4.
+- `src/research/` — pipeline (per step), replication (`replicate.ts` collects fills; `follower.ts` simulates; pure), study report + gates.
+- `src/strategy/` — Phase B params and entry filters (pure). `src/backtest/` — portfolio sim, metrics, walk-forward, sweep report. `src/baselines/` — B2. B1/B4/B5 live in `scripts/baselines.ts` on top of the walk-forward.
+- `test/` — vitest; `test/fixtures/venues.json` holds one recorded mainnet tx per venue.
+
+## Conventions
+
+- Times are unix seconds (block time). Amounts in UI units; values in SOL (stable quotes converted at the last complete hour's SOL/USD).
+- Pools are identified by the **token vault address** (unique per pool even when a program uses one shared authority, and queryable directly for the pool's tape).
+- Traders are **on-curve** owners whose token holdings changed; pools/curves are off-curve (PDA) owners. SOL per owner is summed from lamports (wrapped SOL and rent net out); the fee payer gets the network fee added back.
+- Everything fetched is cached (`fetch_progress`), so re-running costs nothing. Credits are logged per kind in `credit_log`; the budget is a hard stop (`BudgetExceeded`).
+- No lookahead: decisions read only data before their time (`test/lookahead.test.ts`). Execution reads the tape at/after t + delay (that is the fill). Token authority state is replayed from events; without an event a token counts as not revoked.
+- Commit only when asked.
+
+## Data-quality rules (from the audit; keep them)
+
+- Step cache key includes `PIPELINE_VERSION` (`scripts/context.ts`): bump it when step logic changes.
+- Quote legs: a swap whose own price is > 2× off the pool price (or the mint's nearest pool-priced trade within 30 min) is revalued at that price (`wallets/load.ts`; typical cause: paid in USDC/USDT routed through SOL). The parser takes the stablecoin leg when it dominates.
+- Prices never come from dust (< 0.01 SOL, `MIN_PRICE_TRADE_SOL`) or from trades without a pool price. Marks are the median of the last 5 such trades on the pool, and an open position's value is bounded by what the pool could pay (constant product on its quote reserve), on the pool of its latest buy.
+- Transfers out are exits valued at the mark at that time (not cost removal). Copiers mirror them as exits. Positions opened before a window (formation) absorb their later trades and are never reported in it.
+- Helius 429 `max usage reached` = plan quota exhausted → `QuotaExhausted` (not retried).
+
+## Simulator semantics (keep these when changing it)
+
+- Follower fill = first trade on the pool at or after the action time, at that trade's pool price; delay 0 uses the leader's own pool price (B5).
+- Slippage: constant product on the pool's quote reserve (pump.fun curves include virtual reserves). Fees: all-in venue fee per side + base/priority fee per tx, contested entries (≥ 5 distinct buyers in 30s) pay a higher priority fee + Jito tip.
+- Exits mirror leader sells and transfers out proportionally (fraction of holding at each), same delay; time stop at `maxHoldHours`. A transfer out has no leader price, so even at delay 0 it fills on the tape. Phase B adds stop loss / trailing stop on the sparse stored price path.
+- Rug (−100% on the remaining position): no trade within 1h after the exit time, pool quote reserve below `minExitLiquiditySol`, or buy-only tape (honeypot).
+- Attribution sums exactly to the return: alpha (leader pool prices) + delay cost + slippage + fees + rug loss.
