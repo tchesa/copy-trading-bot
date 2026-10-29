@@ -12,9 +12,9 @@ interface Row {
 }
 
 /**
- * A swap whose own price (quote paid ÷ tokens) is further than this factor from the pool's price is missing part of
- * its quote leg (e.g. paid in USDT routed through SOL, where only the SOL dust was attributed). It is revalued at the
- * pool price. Fees and slippage on these venues stay well inside 2×.
+ * A buy paying (sell receiving) more than this factor less (more) than the pool price is missing part of its quote
+ * leg (e.g. paid in USDT routed through SOL, where only the SOL dust was attributed); it is revalued at the pool
+ * price. Fees and slippage on these venues stay well inside 2×.
  */
 export const QUOTE_REPAIR_FACTOR = 2;
 
@@ -71,12 +71,17 @@ export class TradeLoader {
       if (pool === null || !(pool > 0) || !(r.token_amount > 0)) this.stats.unchecked++;
       else {
         const own = sol / r.token_amount;
-        if (!(own > 0) || own / pool > QUOTE_REPAIR_FACTOR || pool / own > QUOTE_REPAIR_FACTOR) {
+        // Directional: repair only a quote leg that is missing part of the payment — a buy that paid far less than
+        // the pool price, or a sell that received far more (e.g. a token-account rent refund). The other direction
+        // is real cost (bot/Jito tips, fixed fees on small trades) and stays in `sol`; only the price is the pool's.
+        const missing = r.side === "buy" ? !(own > 0) || pool / own > QUOTE_REPAIR_FACTOR : own / pool > QUOTE_REPAIR_FACTOR;
+        const extraCost = r.side === "buy" ? own / pool > QUOTE_REPAIR_FACTOR : own > 0 && pool / own > QUOTE_REPAIR_FACTOR;
+        if (missing) {
           sol = r.token_amount * pool;
-          price = pool; // the trade's own price was wrong too (matters when the reference came from a nearby trade)
           quoteRepaired = true;
           this.stats.repaired++;
         }
+        if (missing || extraCost) price = pool; // own price is not the market price either way
       }
     }
     return {

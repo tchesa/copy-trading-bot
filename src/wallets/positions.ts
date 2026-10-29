@@ -8,6 +8,9 @@ const DUST = 0.01;
 export type Mark = number | { price: number; reserveSol: number | null } | null;
 export type MarkFn = (mint: string, pool: string | null, t: number) => Mark;
 
+/** Consecutive trades of one position on the same pool more than this far apart in price make it suspect. */
+export const MAX_PRICE_JUMP = 1000;
+
 /** The market price of a trade: the pool's (or the loader's validated) price, else the trade's own; null for dust. */
 function tradePrice(tr: Trade): number | null {
   if (tr.sol < MIN_PRICE_TRADE_SOL) return null;
@@ -42,6 +45,9 @@ interface Open {
   lastPrice: number | null;
   lastPool: string | null;
   tainted: boolean;
+  suspect: boolean;
+  /** Last pool price seen per pool in this episode (for the jump check). */
+  pricesByPool: Map<string, number>;
   /** Opened before `from`: tracked so later trades in the mint are attributed to it, never returned. */
   pre: boolean;
   buys: Trade[];
@@ -77,11 +83,19 @@ export function buildPositions(trades: Trade[], from: number, to: number, mark: 
       ret: o.cost > 0 ? pnl / o.cost : 0,
       holdSeconds: (closeT ?? to) - o.openT,
       tainted: o.tainted,
+      suspect: o.suspect,
       entryLiquiditySol: o.buys[0]!.poolQuoteReserveSol,
       buys: o.buys,
       sells: o.sells,
       outs: o.outs,
     });
+  };
+
+  const checkJump = (o: Open, tr: Trade) => {
+    if (!tr.pool || tr.price === null || !(tr.price > 0)) return;
+    const prev = o.pricesByPool.get(tr.pool);
+    if (prev !== undefined && Math.max(prev / tr.price, tr.price / prev) > MAX_PRICE_JUMP) o.suspect = true;
+    o.pricesByPool.set(tr.pool, tr.price);
   };
 
   for (const tr of trades) {
@@ -91,7 +105,7 @@ export function buildPositions(trades: Trade[], from: number, to: number, mark: 
       if (!o) {
         o = {
           mint: tr.mint, pool: tr.pool, venue: tr.venue, openT: tr.t, holding: 0, peak: 0, bought: 0, cost: 0,
-          proceeds: 0, transferredOut: 0, lastPrice: null, lastPool: null, tainted: false, pre: tr.t < from, buys: [], sells: [], outs: [],
+          proceeds: 0, transferredOut: 0, lastPrice: null, lastPool: null, tainted: false, suspect: false, pricesByPool: new Map(), pre: tr.t < from, buys: [], sells: [], outs: [],
         };
         open.set(tr.mint, o);
       }
@@ -100,6 +114,7 @@ export function buildPositions(trades: Trade[], from: number, to: number, mark: 
       o.cost += tr.sol;
       o.peak = Math.max(o.peak, o.holding);
       o.buys.push(tr);
+      checkJump(o, tr);
       if (!o.pool && tr.pool) o.pool = tr.pool;
       if (tr.pool) o.lastPool = tr.pool;
       o.lastPrice = tradePrice(tr) ?? o.lastPrice;
@@ -110,6 +125,7 @@ export function buildPositions(trades: Trade[], from: number, to: number, mark: 
       o.proceeds += tr.tokens > 0 ? tr.sol * (sold / tr.tokens) : 0;
       o.holding -= sold;
       o.sells.push(tr);
+      checkJump(o, tr);
       o.lastPrice = tradePrice(tr) ?? o.lastPrice;
     } else if (tr.side === "out") {
       // A transfer out is an exit valued at the market when the tokens left: the mark at that time (median of recent

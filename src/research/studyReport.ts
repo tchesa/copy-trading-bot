@@ -2,7 +2,9 @@ import type { CostParams, StudyParams } from "../config/params.js";
 import { RANKINGS, type RankingId } from "../ranking/rank.js";
 import { hashSeed, rng, sample } from "../util/rng.js";
 import { iso, num, pct, table } from "../util/run.js";
-import { mean, median, spearman, stats, trimTop, type Stats } from "../util/stats.js";
+import { MIN_POSITION_COST_SOL } from "../wallets/metrics.js";
+import { MAX_PRICE_JUMP } from "../wallets/positions.js";
+import { mean, median, quantile, spearman, stats, trimTop, type Stats } from "../util/stats.js";
 import { simulateFollower, type FollowerResult } from "./follower.js";
 import type { StepResult } from "./pipeline.js";
 import type { ReplRecord } from "./types.js";
@@ -71,6 +73,9 @@ export function randomSeedRecords(steps: StepResult[], seed: number, n: number, 
   return out;
 }
 
+/** Two-sided winsorization level for eval ROC in persistence statistics. */
+export const WINSOR = 0.05;
+
 export function buildStudyReport(
   steps: StepResult[], p: StudyParams, costs: CostParams, meta: { from: number; to: number; commit: string; credits: number; creditsByKind: unknown; label: string },
 ) {
@@ -78,15 +83,26 @@ export function buildStudyReport(
   // --- Persistence (H1) ---
   const persistence: Record<string, Array<Record<string, number>>> = {};
   const pooled: Record<string, { f: number[]; e: number[] }> = {};
+  const inactive: Record<string, number> = {};
   for (const ed of p.evalDays.map(String)) {
     persistence[ed] = [];
     pooled[ed] = { f: [], e: [] };
     for (const s of steps) {
       const perf = s.evalPerf[ed] ?? {};
-      const el = s.metrics.filter((m) => Number.isFinite(m.roc) && perf[m.wallet] && isEligible(s, m.wallet));
+      // Wallets with no (qualifying) eval positions have no out-of-sample result: a 0% "return" would beat a
+      // negative median by not trading. They are left out and counted.
+      const withEval = s.metrics.filter((m) => Number.isFinite(m.roc) && perf[m.wallet] && isEligible(s, m.wallet));
+      const el = withEval.filter((m) => perf[m.wallet]!.positions > 0);
+      inactive[ed] = (inactive[ed] ?? 0) + withEval.length - el.length;
       if (el.length < 10) continue;
       const sorted = [...el].sort((a, b) => b.roc - a.roc);
-      const ev = (ws: string[]) => ws.map((w) => perf[w]?.roc ?? NaN).filter(Number.isFinite);
+      // Eval ROC winsorized at this step's p5/p95 of eligible wallets, so one extreme wallet cannot carry a decile
+      // median or a top-k mean. (Spearman is rank-based and uses the raw values.)
+      const raw = el.map((m) => perf[m.wallet]!.roc);
+      const rawSorted = [...raw].sort((a, b) => a - b);
+      const lo = quantile(rawSorted, WINSOR), hi = quantile(rawSorted, 1 - WINSOR);
+      const ev = (ws: string[]) => ws.filter((w) => (perf[w]?.positions ?? 0) > 0).map((w) => perf[w]!.roc).filter(Number.isFinite)
+        .map((x) => Math.min(hi, Math.max(lo, x)));
       const dec = Math.max(1, Math.floor(sorted.length / 10));
       const deciles: number[] = [];
       for (let d = 0; d < 10; d++) deciles.push(median(ev(sorted.slice(d * dec, d === 9 ? sorted.length : (d + 1) * dec).map((m) => m.wallet))));
@@ -174,7 +190,7 @@ export function buildStudyReport(
   for (const ed of p.evalDays.map(String)) {
     const rows = persistence[ed] ?? [];
     md.push(`\n## Persistence (H1), ${ed}-day evaluation window\n`);
-    md.push(`Median eval-window return on capital of eligible wallets, by formation decile (d1 = best formation ROC), vs the median eligible wallet.\n`);
+    md.push(`Median eval-window return on capital of eligible wallets, by formation decile (d1 = best formation ROC), vs the median eligible wallet. Eval ROC is winsorized at each step's p5/p95 (${WINSOR * 100}%) for the decile medians and top-k means; Spearman uses raw values. Eligible wallets with no eval positions are left out (${inactive[ed] ?? 0} wallet-steps). Positions under ${MIN_POSITION_COST_SOL} SOL and positions with a > ${MAX_PRICE_JUMP}× price jump between consecutive trades on one pool are excluded from all wallet metrics.\n`);
     md.push(table(
       ["Step", "n", "d1", "d2", "d5", "d10", "Median all", "Top1 S2", "Top3 S2", "Top10 S2", "Spearman"],
       rows.map((r) => [r.step!, r.n!, pct(r.d1!), pct(r.d2!), pct(r.d5!), pct(r.d10!), pct(r.medianAll!), pct(r.S2top1!), pct(r.S2top3!), pct(r.S2top10!), num(r.spearman!, 2)]),

@@ -12,8 +12,16 @@ export async function fillAt(oracle: Oracle, pool: string, t: number, minExitLiq
   if (!rows.some((r) => r.poolPriced)) ({ rows, complete } = await oracle.tradesFrom(pool, t, 3600));
   // The fill is the first trade priced by the pool's own flows (a trader's own quote can be incomplete).
   const first: TapeRow | undefined = rows.find((r) => r.poolPriced);
-  // No trade for an hour on a fully read tape is a dead pool; an unread tape is unknown.
-  if (!first) return complete ? { t, price: null, reserveSol: null, rug: true } : { t, price: null, reserveSol: null, rug: false, missing: true };
+  if (!first) {
+    if (!complete) return { t, price: null, reserveSol: null, rug: false, missing: true };
+    // Nobody traded for an hour after t. That alone is not a rug: the pool still quotes at the state its last trade
+    // left it in, so sell there — a rug only if the remaining liquidity is below the floor (or the pool never traded).
+    const prior = await oracle.priorState(pool, t);
+    if (prior === "unknown") return { t, price: null, reserveSol: null, rug: false, missing: true };
+    if (prior === null) return { t, price: null, reserveSol: null, rug: true };
+    const rug = checkRug && prior.reserveSol !== null && prior.reserveSol < minExitLiquiditySol;
+    return { t, price: prior.price, reserveSol: prior.reserveSol, rug, quiet: true };
+  }
   const state = await oracle.stateAt(pool, first.blockTime);
   const reserveSol = state?.quoteReserveSol ?? first.poolQuoteReserveSol;
   let rug = false;
@@ -50,7 +58,7 @@ export function sellSchedule(pos: Position, buy: Trade, until: number): LeaderSe
       // Selling down to dust counts as a full exit (matches position closing in positions.ts).
       const frac = after <= peak * 0.01 ? 1 : sold / holding;
       if (e.side === "out") out.push({ t: e.t, frac, price: lastPrice, poolPrice: null, kind: "out" });
-      else out.push({ t: e.t, frac, price: e.sol / e.tokens, poolPrice: e.price });
+      else out.push({ t: e.t, frac, price: e.sol / e.tokens, poolPrice: e.price, pool: e.pool });
     }
     holding = Math.max(0, after);
   }
@@ -68,14 +76,17 @@ export async function replicateBuy(
   const { rows } = await oracle.tradesFrom(pool, buy.t, 61);
   const buyers30 = distinctBuyersAfter(rows, buy.wallet, buy.sig, buy.t, 30);
 
-  const timeStop = await fillAt(oracle, pool, timeStopT, p.minExitLiquiditySol, true);
+  // Exits fill on the pool the leader sold on (a migration moves the market); the time stop on the last one.
+  const exitPool = (s: LeaderSell) => s.pool ?? pool;
+  const lastPool = [...sells].reverse().find((s) => s.pool)?.pool ?? pool;
+  const timeStop = await fillAt(oracle, lastPool, timeStopT, p.minExitLiquiditySol, true);
   const fills: ReplRecord["fills"] = {};
   for (const d of p.delays) {
     const entry = d === 0
       ? { t: buy.t, price: buy.price, reserveSol: buy.poolQuoteReserveSol, rug: false }
       : await fillAt(oracle, pool, buy.t + d, p.minExitLiquiditySol, false);
     const exits: Fill[] = [];
-    for (const s of sells) exits.push(await fillAt(oracle, pool, s.t + d, p.minExitLiquiditySol, true));
+    for (const s of sells) exits.push(await fillAt(oracle, exitPool(s), s.t + d, p.minExitLiquiditySol, true));
     fills[String(d)] = { entry, exits, timeStop };
   }
 

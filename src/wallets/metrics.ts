@@ -30,8 +30,12 @@ export interface WalletMetrics {
 
 const WEEK = 7 * 86_400;
 
+/** Positions that cost less than this (SOL) are left out of wallet metrics: fixed fees and dust-pool prices
+ * dominate them, and a few of them can give a 0.02-SOL wallet a 2000% ROC. */
+export const MIN_POSITION_COST_SOL = 0.01;
+
 export function walletMetrics(wallet: string, positions: Position[], trades: Trade[], from: number, to: number): WalletMetrics {
-  const ps = positions.filter((p) => !p.tainted && p.costSol > 0);
+  const ps = positions.filter((p) => !p.tainted && !p.suspect && p.costSol >= MIN_POSITION_COST_SOL);
   const closed = ps.filter((p) => p.closeT !== null);
   const pnl = ps.reduce((a, p) => a + p.pnl, 0);
 

@@ -10,6 +10,8 @@ export interface Fill {
   rug: boolean;
   /** The tape could not be read (not stored and not fetchable): unknown, never counted as a rug. */
   missing?: boolean;
+  /** No trade within an hour: priced at the pool's state before t (its last trade), not at a later trade. */
+  quiet?: boolean;
 }
 
 export interface LeaderSell {
@@ -22,6 +24,8 @@ export interface LeaderSell {
   /** "out": the leader transferred tokens away. A copier sees the tokens leave and exits; the leader's value for
    * these tokens is the tape price at that moment (delay-0 fill), not its own flows. Absent = "sell". */
   kind?: "sell" | "out";
+  /** Pool the leader sold on (exits fill there, e.g. after a migration); absent = the buy's pool. */
+  pool?: string | null;
 }
 
 /** Everything needed to re-simulate a follower of one leader buy, at any delay, without fetching. */

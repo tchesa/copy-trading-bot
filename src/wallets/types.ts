@@ -45,6 +45,9 @@ export interface Position {
   holdSeconds: number;
   /** Tokens arrived by transfer during the position: PnL is not trustworthy. */
   tainted: boolean;
+  /** Two consecutive trades of the position on the same pool differ in price by more than MAX_PRICE_JUMP×
+   * (a crashed/dust pool or a bad parse): PnL is not trustworthy, excluded like a tainted position. */
+  suspect: boolean;
   entryLiquiditySol: number | null;
   buys: Trade[];
   sells: Trade[];

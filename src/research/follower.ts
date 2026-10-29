@@ -152,8 +152,11 @@ export function simulateFollower(r: ReplRecord, o: FollowerOptions): FollowerRes
     const lpx = leg.leaderPrice ?? p;
     alphaV += leg.frac * (lpx / lp);
     delayV += leg.frac * tokensNoImpact * p;
-    slipV += sellSol(leg.frac * tokensImpact * o.sizeSol, p, leg.fill.reserveSol, 0, true) / o.sizeSol;
-    const v = sellSol(leg.frac * tokensFee * o.sizeSol, p, leg.fill.reserveSol, fee, true) / o.sizeSol;
+    // A rugged leg's whole loss is rug loss: no exit impact against a drained reserve (that would book most of it
+    // as "slippage"). The return is unchanged, since the leg pays nothing either way.
+    const q = leg.fill.rug ? null : leg.fill.reserveSol;
+    slipV += sellSol(leg.frac * tokensImpact * o.sizeSol, p, q, 0, true) / o.sizeSol;
+    const v = sellSol(leg.frac * tokensFee * o.sizeSol, p, q, fee, true) / o.sizeSol;
     feeV += v;
     if (leg.fill.rug || leg.fill.price === null) rug = true;
     else finalV += v;

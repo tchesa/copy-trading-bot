@@ -2,7 +2,7 @@
 
 Research harness for `copy-trading-requirements.md`: do some Solana wallets show persistent skill (H1), can a delayed follower still profit after costs and rugs (H2), and does ranking beat random selection (H3)? On-chain data only (Helius). No live or paper trading.
 
-State: see the latest `reports/*-study.md` (Phase A gate) and `reports/*-baselines.md` (§8.3 go/no-go). `report.md` has the write-up.
+State: **closed (NO-GO)**, see `report.md`. Phase A on 8 of 25 weeks: copy trades lose after costs at every delay ≥ 5 s and every follower size; the Helius plan's credits are exhausted.
 
 ## Commands
 
@@ -11,7 +11,9 @@ State: see the latest `reports/*-study.md` (Phase A gate) and `reports/*-baselin
 - `pnpm study [--steps N] [--params JSON] [--eligibility JSON] [--costs JSON] [--offline] [--report-only] [--label]` — Phase A. Runs each weekly walk-forward step (discovery → screen → wallet histories → formation metrics → exclusions/eligibility → crowding → S1–S4 → eval-window persistence → replication of leader buys), caches each step to `data/steps/<hash>/step-NN.json`, then writes `reports/<ts>-study.md|json` with gates G1–G3.
 - `pnpm sweep [--ranking S1..S4] [--delay 5] [--grid JSON] [--base-params JSON] [--quick] [--train 8] [--label]` — Phase B walk-forward at every delay, offline from cached steps. Prints a `SUMMARY` line.
 - `pnpm baselines [--seeds 20] [--b2-seeds 5]` — B1–B5 and the §8.3 go/no-go table. B2 fetches tape for random tokens (online).
+- `pnpm size [--sizes 0.05,0.1,0.25,1] [--delays 0,5,15,60] [--methods S1,S2,S4] [--boot 2000]` — follower-size sensitivity with wallet-clustered bootstrap intervals (offline).
 - `pnpm check-data [--dir data/steps/<hash>] [--rugs 20]` — data-quality audit of cached steps (offline): positions above 100×, follower-at-0s vs leader consistency, hand-check of rug trades against the leader's later txs.
+- `pnpm feasibility [--boot 2000]` — copyability spec (`~/Downloads/copyability-score-spec.md`) Stage 0 on cached steps (offline): leader return vs 5 s delay cost per wallet-week, quadrants, stop rule, SVG scatter.
 - Cache-only replay (no credits): `pnpm study --steps N --budget <credits already used>` — every real fetch throws `BudgetExceeded`; wallets that would need one are skipped (`unfetched`), unreadable tape is `missing` (never a rug) and those records are dropped at load.
 - `pnpm typecheck`, `pnpm test`.
 
@@ -39,7 +41,9 @@ Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is susta
 ## Data-quality rules (from the audit; keep them)
 
 - Step cache key includes `PIPELINE_VERSION` (`scripts/context.ts`): bump it when step logic changes.
-- Quote legs: a swap whose own price is > 2× off the pool price (or the mint's nearest pool-priced trade within 30 min) is revalued at that price (`wallets/load.ts`; typical cause: paid in USDC/USDT routed through SOL). The parser takes the stablecoin leg when it dominates.
+- Quote legs (`wallets/load.ts`), directional: a buy paying > 2× less (a sell receiving > 2× more) than the pool price — or the mint's nearest pool-priced trade within 30 min — is missing part of its payment and is revalued at that price (typical cause: paid in USDC/USDT routed through SOL; rent refunds on sells). The other direction is real cost (bot/Jito tips) and is kept; only the price is the pool's. The parser takes the stablecoin leg when it dominates.
+- Wallet metrics ignore positions costing < 0.01 SOL (`MIN_POSITION_COST_SOL`) and positions with a > 1000× price jump between consecutive trades on one pool (`suspect`; crashed/dust pools). Persistence stats winsorize eval ROC at p5/p95 per step and leave out eligible wallets with no eval positions.
+- Exits: a leg with no trade within 1h is priced at the pool's state before it (last trade, reserve after any LP change; `Oracle.priorState`), a rug only if that liquidity is below the floor. Trusted if the last trade is ≤ 10 min old, the tape covers the gap, or (online) a backward page is fetched; otherwise `missing`. Exits fill on the pool the leader sold on; the time stop on the last such pool.
 - Prices never come from dust (< 0.01 SOL, `MIN_PRICE_TRADE_SOL`) or from trades without a pool price. Marks are the median of the last 5 such trades on the pool, and an open position's value is bounded by what the pool could pay (constant product on its quote reserve), on the pool of its latest buy.
 - Transfers out are exits valued at the mark at that time (not cost removal). Copiers mirror them as exits. Positions opened before a window (formation) absorb their later trades and are never reported in it.
 - Helius 429 `max usage reached` = plan quota exhausted → `QuotaExhausted` (not retried).
@@ -49,5 +53,5 @@ Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is susta
 - Follower fill = first trade on the pool at or after the action time, at that trade's pool price; delay 0 uses the leader's own pool price (B5).
 - Slippage: constant product on the pool's quote reserve (pump.fun curves include virtual reserves). Fees: all-in venue fee per side + base/priority fee per tx, contested entries (≥ 5 distinct buyers in 30s) pay a higher priority fee + Jito tip.
 - Exits mirror leader sells and transfers out proportionally (fraction of holding at each), same delay; time stop at `maxHoldHours`. A transfer out has no leader price, so even at delay 0 it fills on the tape. Phase B adds stop loss / trailing stop on the sparse stored price path.
-- Rug (−100% on the remaining position): no trade within 1h after the exit time, pool quote reserve below `minExitLiquiditySol`, or buy-only tape (honeypot).
+- Rug (−100% on the remaining position): pool quote reserve below `minExitLiquiditySol` at the exit (from the first trade at/after it, or the prior state if the pool is quiet), buy-only tape (honeypot), or a pool that never traded.
 - Attribution sums exactly to the return: alpha (leader pool prices) + delay cost + slippage + fees + rug loss.

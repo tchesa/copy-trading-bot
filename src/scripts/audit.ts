@@ -7,11 +7,14 @@
 import { parseArgs } from "node:util";
 import { defaultCosts } from "../config/params.js";
 import { leaderReturn, simulateFollower } from "../research/follower.js";
-import { loadSteps } from "../research/loadSteps.js";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { leaderOwnReturn } from "../research/feasibility.js";
+import { hasMissingTape, loadSteps } from "../research/loadSteps.js";
 import type { Fill, ReplRecord } from "../research/types.js";
 import { hashSeed, rng, sample } from "../util/rng.js";
-import { median, quantile } from "../util/stats.js";
-import { iso, pct, table, writeReportFiles } from "../util/run.js";
+import { mean, median, quantile, trimTop } from "../util/stats.js";
+import { iso, num, pct, table, writeReportFiles } from "../util/run.js";
 import { MAX_PLAUSIBLE_RET } from "../wallets/audit.js";
 import { buildContext, commonOptions } from "./context.js";
 
@@ -48,7 +51,7 @@ for (const r of records) {
   const l = leaderReturn(r);
   pairs.push({ r, f: f.ret, l, d: f.ret - l, rug: f.rug });
 }
-const ds = pairs.map((x) => x.d);
+const ds = pairs.map((x) => x.d).sort((a, b) => a - b);
 const absd = ds.map(Math.abs);
 md.push(`## 2. Consistency: follower at 0s vs the leader's realized return (same buys)`, ``,
   `The follower at 0s fills at the leader's own pool prices, so the two should differ only by the follower's fees and its own size impact (≈ a few %). ` +
@@ -113,6 +116,45 @@ md.push(`## 3. Hand-check of ${picked.length} rug trades at 0s (of ${rugRecs.len
   table(["Class", "Count"], Object.entries(classes).sort((a, b) => b[1] - a[1])), ``,
   table(["Step", "Buy sig", "Mint", "Venue", "Rug leg", "Why", "Class", "Leader's later txs in mint", "Other pools trading the mint"], rugRows), ``);
 json.rugs = details;
+
+// 4. Dropped records (unreadable tape): where, which fill, and are they different? ----------------------------------
+// Leader return from its own flows only (no tape): sells at its own price, transfers out and any remainder at its
+// last own trade price. Same measure for kept and dropped buys.
+const rawRecords = readdirSync(dir).filter((f) => /^step-\d+\.json$/.test(f))
+  .flatMap((f) => (JSON.parse(readFileSync(join(dir, f), "utf8")) as { records: ReplRecord[] }).records);
+const ownReturn = leaderOwnReturn;
+const whichMissing = (r: ReplRecord) => {
+  const w = new Set<string>();
+  for (const [d, f] of Object.entries(r.fills)) {
+    if (f.entry.missing) w.add(`entry@${d}s`);
+    if (f.timeStop?.missing) w.add("time stop");
+    f.exits.forEach((x, i) => x.missing && w.add(r.sells[i]?.kind === "out" ? "transfer-out exit" : `sell exit@${d === "0" ? "0" : ">0"}s`));
+  }
+  return [...w];
+};
+const venues = [...new Set(rawRecords.map((r) => r.venue))].sort();
+const vrows = venues.map((v) => {
+  const all = rawRecords.filter((r) => r.venue === v);
+  const dr = all.filter(hasMissingTape);
+  const kp = all.filter((r) => !hasMissingTape(r));
+  const med = (xs: ReplRecord[]) => (xs.length ? pct(median(xs.map(ownReturn).filter(Number.isFinite))) : "–");
+  return [v, all.length, dr.length, pct(dr.length / all.length), med(kp), med(dr)];
+});
+const dropped = rawRecords.filter(hasMissingTape);
+const kept = rawRecords.filter((r) => !hasMissingTape(r));
+const reasons: Record<string, number> = {};
+for (const r of dropped) for (const w of whichMissing(r)) reasons[w] = (reasons[w] ?? 0) + 1;
+const sumRow = (name: string, xs: ReplRecord[]) => {
+  const rs = xs.map(ownReturn).filter(Number.isFinite);
+  return [name, xs.length, pct(median(rs)), pct(mean(trimTop(rs, 0.01))), pct(rs.filter((x) => x > 0).length / rs.length),
+    num(median(xs.map((r) => r.leaderSol)), 3), pct(xs.filter((r) => r.group === "ranked").length / xs.length)];
+};
+md.push(`## 4. Dropped leader buys (part of their tape unreadable)`, ``,
+  `${dropped.length} of ${rawRecords.length} buys (${pct(dropped.length / rawRecords.length)}) are dropped. Leader return here uses the leader's own flows only (sells at its own price; transfers out and any remainder at its last own price), so it is defined for both groups.`, ``,
+  table(["Group", "Buys", "Median leader return", "Mean −top1%", "Hit", "Median leader size (SOL)", "Ranked share"], [sumRow("kept", kept), sumRow("dropped", dropped)]), ``,
+  table(["Venue", "Buys", "Dropped", "Dropped %", "Median leader return (kept)", "Median leader return (dropped)"], vrows), ``,
+  `Which fill was unreadable (a buy can have several): ${Object.entries(reasons).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ")}.`, ``);
+json.dropped = { total: dropped.length, of: rawRecords.length, reasons, byVenue: vrows };
 
 const files = writeReportFiles("reports", "audit", md.join("\n"), json);
 console.log(files);

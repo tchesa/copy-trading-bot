@@ -290,7 +290,7 @@ export async function runStep(ctx: Ctx, w: StepWindow): Promise<StepResult> {
   await pool(jobs, ctx.concurrency, async ({ wallet, group }) => {
     if (!hasEval.has(wallet)) return;
     const trades = loader.load(wallet, F0, tradeEnd);
-    const pos = buildPositions(trades, F1, tradeEnd, () => null).filter((x) => x.openT < replEnd && !x.tainted);
+    const pos = buildPositions(trades, F1, tradeEnd, () => null).filter((x) => x.openT < replEnd && !x.tainted && !x.suspect);
     const buys = pos.flatMap((x) => x.buys.filter((b) => b.t < replEnd).map((b) => ({ x, b })));
     const r = ranksOf.get(wallet) ?? {};
     const probe = group === "random" || Object.values(r).some((k) => k <= p.probeTopN);

@@ -1,4 +1,5 @@
 import { logger } from "../log.js";
+import { MIN_POSITION_COST_SOL } from "./metrics.js";
 import type { Position, Trade } from "./types.js";
 
 const log = logger("audit");
@@ -25,7 +26,8 @@ export interface PositionOutlier {
 export function auditPositions(phase: string, positions: Position[]): PositionOutlier[] {
   const out: PositionOutlier[] = [];
   for (const p of positions) {
-    if (p.tainted || !(p.ret > MAX_PLAUSIBLE_RET)) continue; // tainted positions are already excluded from metrics
+    // tainted, suspect and sub-minimum positions are already excluded from wallet metrics
+    if (p.tainted || p.suspect || p.costSol < MIN_POSITION_COST_SOL || !(p.ret > MAX_PLAUSIBLE_RET)) continue;
     const o: PositionOutlier = {
       phase, wallet: p.wallet, mint: p.mint, pool: p.pool, ret: p.ret, costSol: p.costSol, proceedsSol: p.proceedsSol, markSol: p.markSol,
       trades: [...p.buys, ...p.sells].sort((a, b) => a.t - b.t).map((t) => ({

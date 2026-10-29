@@ -22,7 +22,7 @@ export interface CommonArgs {
   eligibility?: string;
 }
 
-export const PIPELINE_VERSION = 10;
+export const PIPELINE_VERSION = 11;
 
 export const commonOptions = {
   from: { type: "string" as const, default: "2026-03-28" },
@@ -53,7 +53,8 @@ export function buildContext(a: CommonArgs): { ctx: Ctx; from: number; to: numbe
   // 6: repaired trades take the reference price; fills/marks/paths use pool-priced trades only;
   // 7: transfers out valued at the last validated (pool) price; 8: dust trades (< 0.01 SOL) are never a price;
   // 9: marks = median of the last 5 pool trades; transfers out valued at the mark when they happen;
-  // 10: fetched marks use the latest buy's pool too).
+  // 10: fetched marks use the latest buy's pool too; 11: min position cost, price-jump flag, directional quote repair,
+  // quiet-pool exits at the prior state, exits on the leader's sell pool).
   const key = createHash("sha1").update(JSON.stringify({ p, el, from, to, v: PIPELINE_VERSION })).digest("hex").slice(0, 10);
   const ctx: Ctx = {
     db, helius, oracle, loader: new TradeLoader(db, solUsd), solUsd, p, el,

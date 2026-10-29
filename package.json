@@ -13,6 +13,8 @@
     "study": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/study.ts",
     "sweep": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/sweep.ts",
     "baselines": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/baselines.ts",
+    "size": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/size.ts",
+    "feasibility": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/feasibility.ts",
     "check-data": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/audit.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
