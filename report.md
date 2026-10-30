@@ -15,7 +15,9 @@ Headline, at the 5 s delay and 0.1 SOL per trade (wallet-clustered bootstrap 95%
 
 None of these comes close to the §8.3 bar (≥ 30% OOS APR at ≥ 5 s, Sharpe ≥ 1, ≥ 67% of windows positive). Capacity is also too small to matter even if a trimmed mean turned positive. Leaders buy a median of 0.03 SOL, and following every sampled buy of a top-10 list would move a few hundredths of a SOL per week.
 
-Read the numbers with section 5 in mind. They cover **8 of the planned 25 weekly steps** (the Helius plan's 1M credits ran out), and a cache-only replay had to drop 62% of the copied buys. Every check run on what remains points the same way.
+**Follow-up (section 6): ranking wallets by how copyable their profits are also fails (pre-registered NO-GO).** It finds wallets that a 5 s copier *can* follow at almost no delay cost, but those wallets have no edge to copy: median −1.3%, mean −top 1% −7.4% per trade, negative in all 8 weeks, and negative even at 0 s.
+
+Read the Phase A numbers with section 5 in mind. They cover **8 of the planned 25 weekly steps** (the Helius plan's 1M credits ran out), and a cache-only replay had to drop 62% of the copied buys. Every check run on what remains points the same way.
 
 ---
 
@@ -204,3 +206,47 @@ pnpm sweep --ranking S4 --train 4 --grid '{"followN":[10]}' --base-params '{"min
 ```
 
 A fresh online run of all 25 steps would be `pnpm study` with credits available. It fetches only what isn't cached.
+
+
+---
+
+## 6. Follow-up: copyability score (`docs/copyability-score-spec.md`)
+
+**Outcome: NO-GO** for both new methods, against gates fixed and committed (`eb96d11`) before any data was pulled.
+
+The question: Phase A showed the most profitable wallets lose their edge to the delay, and the copyable ones have no edge. Is there a corner of wallets that are both profitable and copyable, and can a formation-window score find them?
+- **C (S5):** replicate up to 12 of the wallet's formation buys at a 5 s delay (exits at the leader's own sells) and rank by the trimmed mean.
+- **I (S6):** a market-impact score (buy size vs liquidity, post-buy price drift, follow-on buyers, selling into crowds). Keep wallets with I ≤ 0.30, then rank by return on capital.
+
+### Stage 0 (cached data, could only stop the project): passed, thinly
+6 wallet-weeks were profitable and copyable, from 6 wallets and 5 weeks, with a pooled 5 s copy return of +6.8% mean −top 1% over 24 trades. The median was −0.5%, and the 95% interval started at about 0. One wallet (3 trades) carried most of it. (`reports/2026-10-29T19-02-11-feasibility.*`)
+
+### Stage 1 (new data, 422,080 credits of the 1M cap)
+Same 8 steps and Phase A universe. Up to 20 eval buys per wallet. Readable tape this time: only 3.4% of buys were dropped, against 62% in the Phase A replay. The drops had been budget gaps, not a parser problem (`pnpm coverage`).
+
+| 5 s, 0.1 SOL | Trades | Wallets | Median (95% CI) | Mean −top 1% (95% CI) | 1-sided 95% LB | Rug rate | Alpha | Delay cost |
+|---|---|---|---|---|---|---|---|---|
+| **S5** copyability C | 1122 | 60 | −1.3% (−1.5 … −1.1) | −7.4% (−9.7 … −5.3) | −9.3% | 9.9% | −0.5% | +0.1% |
+| **S6** low impact | 245 | 14 | −2.3% (−100 … −0.8) | −31.1% (−56 … −10) | −51.2% | 29.8% | +47.5% | +0.3% |
+| S2 (Phase A) | 920 | 52 | −6.9% (−21.5 … −2.5) | −31.3% (−43 … −21) | −40.9% | 39.6% | +42.9% | −0.5% |
+| B1 random, 20 seeds | ≈1390 | | −1.9% | −14.8% | | | | |
+
+| Gate | S5 | S6 |
+|---|---|---|
+| G1 ≥ 150 buys, ≥ 15 wallets | ✓ | ✗ (14 wallets; I ≤ 0.30 left 0–6 wallets per week) |
+| G2 median and trimmed mean > 0 | ✗ | ✗ |
+| G3 one-sided lower bound > 0 | ✗ | ✗ |
+| G4 trimmed mean > 0 at 15 s | ✗ | ✗ |
+| G5 beats B1 and S2 | ✓ | ✗ |
+| G6 positive in ≥ 5 of 8 weeks | ✗ (0 of 8) | ✗ |
+| G7 C persists (Spearman formation vs eval) | ✓ 0.41 | ✓ 0.41 |
+
+What it means:
+- **The score works as a measurement and fails as a strategy.** C persists from formation to eval (Spearman 0.41), and S5 halves the rug rate and the losses of S2 and random wallets. But what it finds is wallets whose trades are *flat*: leader alpha −0.5%, no delay cost, and the costs and occasional rugs then make the copy negative. At 0 s the result is the same (median −1.8%), so the delay is not the problem.
+- **This confirms H0 in the spec:** wallet profits are either front-loaded (speed or crowd) or absent. The Stage 0 corner did not survive out of sample: no week has a positive trimmed mean for S5.
+- **S6 is underpowered by construction.** I averages four percentile ranks, so few wallets reach ≤ 0.30. Its picks are high return-on-capital wallets that rug often, like S2.
+- **Attribution note.** One S5 trade bought into a pool drained minutes after the leader. Its return (−100%) counts everywhere. Attribution averages leave out records with a fill priced more than 1000× above the entry, because a drained pool's dust price makes the alpha/delay split meaningless.
+
+Reports: `reports/2026-10-29T21-45-44-coverage.*`, `reports/*-score-estimate.*`, `reports/2026-10-29T23-27-15-copyability.*`. Reproduce (cached, no credits): `pnpm feasibility`, `pnpm coverage`, `pnpm score --report-only`.
+
+**Project verdict stands: close it.** Three ranking families have now failed against a 5 s copier on the same data: raw PnL (speed), return on capital and consistency (rugs, costs), and copyability (no edge). The remaining Helius credits are not worth spending on this question.

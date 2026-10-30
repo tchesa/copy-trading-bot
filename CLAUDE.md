@@ -2,7 +2,7 @@
 
 Research harness for `copy-trading-requirements.md`: do some Solana wallets show persistent skill (H1), can a delayed follower still profit after costs and rugs (H2), and does ranking beat random selection (H3)? On-chain data only (Helius). No live or paper trading.
 
-State: **closed (NO-GO)**, see `report.md`. Phase A on 8 of 25 weeks: copy trades lose after costs at every delay ≥ 5 s and every follower size; the Helius plan's credits are exhausted.
+State: **closed (NO-GO)**, see `report.md` (section 6: the copyability-score follow-up, also NO-GO against pre-registered gates). Phase A on 8 of 25 weeks: copy trades lose after costs at every delay ≥ 5 s and every follower size; the Helius plan's credits are exhausted.
 
 ## Commands
 

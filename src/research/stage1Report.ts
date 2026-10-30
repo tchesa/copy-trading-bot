@@ -7,6 +7,7 @@ import { STAGE1 } from "../score/config.js";
 import { asLeaderExit, simulateC, trimmed } from "../score/copyability.js";
 import { hashSeed, rng, sample } from "../util/rng.js";
 import { iso, num, pct, table } from "../util/run.js";
+import { MAX_PRICE_JUMP } from "../wallets/positions.js";
 import { mean, median, quantile, spearman } from "../util/stats.js";
 import { simulateFollower, type FollowerResult } from "./follower.js";
 import { hasMissingTape } from "./loadSteps.js";
@@ -41,14 +42,23 @@ function boot(xs: Sel[], seed: string) {
   return { median: [quantile(meds, 0.025), quantile(meds, 0.975)], trimmed: [quantile(trims, 0.025), quantile(trims, 0.975)], lower: quantile(trims, 0.05) };
 }
 
+/** A fill priced > MAX_PRICE_JUMP above the leader's entry (a drained pool's dust ratio): its attribution split is
+ * meaningless. Falls of that size are real crashes and stay in. */
+export function suspectRecord(r: ReplRecord): boolean {
+  const ps = Object.values(r.fills).flatMap((f) => [f.entry, ...f.exits, f.timeStop]).map((f) => f?.price).filter((p): p is number => p != null && p > 0);
+  return ps.some((p) => p / r.leaderPoolPrice > MAX_PRICE_JUMP);
+}
+
 function summary(xs: Sel[], weeks: number, size: number) {
   const r = xs.map((x) => x.res.ret);
-  const m = (k: "alpha" | "delayCost" | "slippage" | "fees" | "rugLoss") => mean(xs.map((x) => x.res[k]));
+  // Returns count every trade; the attribution split leaves out suspect records (their return is still in).
+  const clean = xs.filter((x) => !suspectRecord(x.rec));
+  const m = (k: "alpha" | "delayCost" | "slippage" | "fees" | "rugLoss") => mean(clean.map((x) => x.res[k]));
   return {
     trades: xs.length, wallets: new Set(xs.map((x) => x.rec.wallet)).size, median: r.length ? median(r) : NaN, trimmed: r.length ? trimmed(r) : NaN,
     hit: r.length ? r.filter((v) => v > 0).length / r.length : NaN, rug: r.length ? xs.filter((x) => x.res.rug).length / r.length : NaN,
     alpha: m("alpha"), delayCost: m("delayCost"), slippage: m("slippage"), fees: m("fees"), rugLoss: m("rugLoss"),
-    solPerWeek: r.length ? (mean(r) * size * r.length) / weeks : 0,
+    solPerWeek: r.length ? (mean(r) * size * r.length) / weeks : 0, suspect: xs.length - clean.length,
   };
 }
 
@@ -154,6 +164,8 @@ export function buildStage1Report(steps: Stage1Step[], p: StudyParams, costs: Co
           pct(x.hit), pct(x.rug), pct(x.alpha), pct(x.delayCost), pct(x.slippage), pct(x.fees), pct(x.rugLoss), num(x.solPerWeek, 3)];
       }).concat([["B1", b1[st.name]!.trades, "–", pct(b1[st.name]!.median), "–", pct(b1[st.name]!.trimmed), "–", "–", "–", "–", "–", "–", "–", "–", "–", "–"]])), ``);
   }
+  md.push(`Attribution columns (alpha … rug loss) leave out records with a fill priced > ${MAX_PRICE_JUMP}× above the leader's entry (a drained pool's dust ratio; ` +
+    `${raw.filter((x) => !hasMissingTape(x) && suspectRecord(x)).length} of ${kept(raw).length} readable records). Their returns are counted everywhere else.`, ``);
   md.push(`### Per week, ${hl}: mean −top1%`, ``,
     table(["Method", ...steps.map((s) => `${s.step} (${iso(s.F1)})`)], STAGE1_METHODS.map((m) => [m, ...res[m]![hl]!.perWeek!.map((x) => (Number.isFinite(x) ? pct(x) : "–"))])), ``);
   md.push(`## Score persistence (G7)`, ``,
