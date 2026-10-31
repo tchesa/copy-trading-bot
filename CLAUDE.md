@@ -47,6 +47,8 @@ Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is susta
 
 ## Weekly routine (forward test)
 
+Every **Thursday** (matches the end of the Helius subscription period; `FORWARD.snapshotWeekday`, a snapshot on another day only warns).
+
 1. Open fomo.family by hand (never scrape or fetch it from code: its terms forbid automated access), read the 30-day leaderboard and save it to `data/fomo/snapshots/<YYYY-MM-DD>.json`: `takenAt` with your UTC offset, then per trader `handle`, `rank` and either `wallet` or 2–4 Solana token trades (`mint` from the trade's token link, `text` = the trade line as shown). Template: `docs/fomo-snapshot-template.json` (CSV also accepted: see `src/forward/snapshot.ts`).
 2. `pnpm weekly --estimate` (optional), then `pnpm weekly`. If the run stops at its budget, run it again (or with a larger `--budget`): it continues where it stopped.
 3. Read `reports/fomo-forward.md`. A snapshot's week is scored once the next snapshot exists, and only buys whose 48 h time stop has passed: the next weekly run scores most of it, the one after that finishes it (the week is "complete").

@@ -20,6 +20,9 @@ export const FORWARD = {
   maxEntryDiscount: 3,
   /** Every buy ≥ minBuySol is copied if the run's budget allows; otherwise buys are taken in a fixed-seed random order. */
   seed: "fomo-forward-v1",
+  /** Snapshot day (0 = Sunday … 4 = Thursday, in the snapshot's own UTC offset): weekly runs on Thursdays, matching
+   * the Helius billing cycle. A snapshot on another day only warns (weeks are snapshot to snapshot either way). */
+  snapshotWeekday: 4,
   // Wallets
   /** History before the snapshot loaded for positions (buys adding to a position opened in it are still copied)
    * and for the bot screen. */

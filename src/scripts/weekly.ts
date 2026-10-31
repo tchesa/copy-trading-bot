@@ -1,5 +1,5 @@
 /**
- * Weekly forward paper-test of Fomo leaderboard wallets (`pnpm weekly`), run by hand once a week after saving that
+ * Weekly forward paper-test of Fomo leaderboard wallets (`pnpm weekly`), run by hand every Thursday (Helius billing cycle) after saving that
  * week's leaderboard snapshot to data/fomo/snapshots/<YYYY-MM-DD>.json (never fetched: Fomo's terms forbid scraping).
  *   (default)        resolve the new snapshot's wallets, score every week whose next snapshot exists (closed buys only),
  *                    finish buys that were open last time, baselines, then write reports/fomo-forward.md|json
@@ -53,6 +53,11 @@ for (const s of snaps) if (s.takenAt > now) throw new Error(`${s.file}: takenAt 
 const latest = snaps[snaps.length - 1]!;
 if (mode === "pull" && !values["skip-snapshot"] && now - latest.takenAt > 3 * DAY)
   missing(`This week's snapshot is missing: the latest is ${latest.date} (${((now - latest.takenAt) / DAY).toFixed(1)} days old).`);
+
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const weekday = new Date((latest.takenAt + latest.utcOffsetMinutes * 60) * 1000).getUTCDay();
+if (mode === "pull" && !values["skip-snapshot"] && weekday !== FORWARD.snapshotWeekday)
+  log.warn(`latest snapshot ${latest.date} is a ${DAYS[weekday]}; the routine is every ${DAYS[FORWARD.snapshotWeekday]} (Helius billing cycle). Continuing.`);
 
 if (mode === "pull") {
   const dirty = execSync("git status --porcelain src package.json", { encoding: "utf8" }).trim();
