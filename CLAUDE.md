@@ -2,7 +2,7 @@
 
 Research harness for `copy-trading-requirements.md`: do some Solana wallets show persistent skill (H1), can a delayed follower still profit after costs and rugs (H2), and does ranking beat random selection (H3)? On-chain data only (Helius). No live or paper trading.
 
-State: **closed (NO-GO)**, see `report.md` (section 6: the copyability-score follow-up, also NO-GO against pre-registered gates). Phase A on 8 of 25 weeks: copy trades lose after costs at every delay ≥ 5 s and every follower size; the Helius plan's credits are exhausted.
+State: **closed (NO-GO)**, see `report.md` (section 6: the copyability-score follow-up, also NO-GO against pre-registered gates; section 7: exploratory rule search with 30-day windows over every non-bot wallet, no rule copies profitably). Phase A on 8 of 25 weeks: copy trades lose after costs at every delay ≥ 5 s and every follower size; the Helius plan's credits are exhausted.
 
 ## Commands
 
@@ -16,6 +16,7 @@ State: **closed (NO-GO)**, see `report.md` (section 6: the copyability-score fol
 - `pnpm feasibility [--boot 2000]` — copyability spec (`docs/copyability-score-spec.md`) Stage 0 on cached steps (offline): leader return vs 5 s delay cost per wallet-week, quadrants, stop rule, SVG scatter.
 - `pnpm coverage` — why cached replication fills were unreadable, per venue and leg (spec 5.5, offline).
 - `pnpm score --estimate` — Stage 1 credit estimate (offline dry run). `pnpm score` (= `pnpm study --methods S2,S5,S6 --label copyability`) — Stage 1: C and I on formation data (tape fenced at F1), S5/S6, eval replication of ≤ 20 buys/wallet for S2, S5, S6 and the random pool, under a hard 1M-credit cap counted from `data/stage1/<hash>/meta.json`; refuses to pull with uncommitted changes (R-P1). `--report-only` re-reports. Config is pre-registered in `src/score/config.ts`: changing it after the pull makes results exploratory.
+- `pnpm explore [--steps N] [--cap 6000000] [--report-only]` — exploratory (not pre-registered) selection-rule search, `src/explore/`: monthly steps, 30-day scoring and 30-day simulation windows, every non-bot candidate (≤ 800, histories ≤ 3000 txs) replicated (≤ 15 eval buys), cached to `data/explore/<hash>/`. Report: each ranking alone, feature → next-month Spearman, a grid of 14 rankings × 3456 filter combinations × top 5/10/25 searched on steps 0–2 and judged on holdout steps 3–5 vs random wallets of the same filter, a permutation null for the search, walk-forward rule choice.
 - Cache-only replay (no credits): `pnpm study --steps N --budget <credits already used>` — every real fetch throws `BudgetExceeded`; wallets that would need one are skipped (`unfetched`), unreadable tape is `missing` (never a rug) and those records are dropped at load.
 - `pnpm typecheck`, `pnpm test`.
 
@@ -26,7 +27,7 @@ Env (`.env`): `HELIUS_API_KEY` (required), `HELIUS_RPS` (default 10; ~8 is susta
 - `src/data/` — `helius.ts` (client + persistent credit meter + hard budget), `http.ts` (adaptive limiter, retries), `parse/` (venue-agnostic swap parser, pool state), `sample.ts` (discovery), `walletHistory.ts` (bot screen + history), `oracle.ts` (cached point-in-time tape: prices, liquidity, marks), `mints.ts` (point-in-time token state), `solusd.ts`, `programs.ts` (venue program ids, quote mints).
 - `src/db/db.ts` — node:sqlite schema (`swaps`, `discovery`, `pool_states`, `fetch_progress`, `credit_log`, `mints`, `sol_usd`).
 - `src/wallets/` — positions, metrics, exclusions, eligibility, crowding, trade loader.
-- `src/ranking/rank.ts` — S1–S4. `src/score/` — copyability spec: C (`copyability.ts`, formation replication with leader-exit fills, lookahead `fence`), I (`impact.ts`), pre-registered `config.ts`. `src/research/stage1*.ts` — Stage 1 runner and report; `feasibility.ts` — Stage 0.
+- `src/ranking/rank.ts` — S1–S4. `src/score/` — copyability spec: C (`copyability.ts`, formation replication with leader-exit fills, lookahead `fence`), I (`impact.ts`), pre-registered `config.ts`. `src/research/stage1*.ts` — Stage 1 runner and report; `feasibility.ts` — Stage 0. `src/explore/` — exploratory rule search (config, universe step, rule grid, report).
 - `src/research/` — pipeline (per step), replication (`replicate.ts` collects fills; `follower.ts` simulates; pure), study report + gates.
 - `src/strategy/` — Phase B params and entry filters (pure). `src/backtest/` — portfolio sim, metrics, walk-forward, sweep report. `src/baselines/` — B2. B1/B4/B5 live in `scripts/baselines.ts` on top of the walk-forward.
 - `test/` — vitest; `test/fixtures/venues.json` holds one recorded mainnet tx per venue.

@@ -45,13 +45,26 @@ export class QuotaExhausted extends Error {
   }
 }
 
+/**
+ * Reject if `p` has not settled in `ms`. AbortSignal.timeout's timer does not keep the process alive, so a socket that
+ * stalls mid-body could leave nothing on the event loop and node exits (code 13) with the run silently unfinished.
+ * This timer is ref'd: a stall becomes an error, which the callers retry.
+ */
+export function withDeadline<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let t: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${what}: no response in ${ms} ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t));
+}
+
 /** Fetch with retry on network errors, 429 and 5xx. Returns null on 404. */
 export async function fetchWithRetry(url: string, limiter?: Limiter, init?: RequestInit): Promise<Response | null> {
   for (let attempt = 0; ; attempt++) {
     await limiter?.take();
     let res: Response;
     try {
-      res = await fetch(url, { ...init, signal: AbortSignal.timeout(60_000) });
+      res = await withDeadline(fetch(url, { ...init, signal: AbortSignal.timeout(60_000) }), 75_000, "fetch");
     } catch (e) {
       if (attempt >= MAX_RETRIES) throw e;
       const wait = 1000 * 2 ** attempt;
@@ -90,7 +103,7 @@ async function fetchJson<T>(url: string, limiter: Limiter | undefined, init: Req
     const res = await fetchWithRetry(url, limiter, init);
     if (!res) throw new Error(`${init?.method ?? "GET"} ${redact(url)} -> 404`);
     try {
-      return (await res.json()) as T;
+      return (await withDeadline(res.json(), 75_000, "body")) as T;
     } catch (e) {
       if (attempt >= MAX_RETRIES) throw e;
       log.warn("body read failed, retrying", { url: redact(url), attempt, error: (e as Error).message });

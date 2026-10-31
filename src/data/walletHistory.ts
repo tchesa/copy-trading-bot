@@ -55,9 +55,10 @@ export async function ensureHistory(
     if (to > cov.t) gaps.push([cov.t, to]);
   }
   if (gaps.length === 0) return true;
-  // A gap overlapping a range that already exceeded the cap would exceed it again: don't pay for it twice.
-  const capped = db.prepare("SELECT 1 FROM fetch_progress WHERE kind = 'wallet-cap' AND key = ? AND from_ts < ? AND to_ts > ? LIMIT 1");
-  for (const [a, b] of gaps) if (capped.get(wallet, b, a)) return false;
+  // A gap overlapping a range that already exceeded this cap would exceed it again: don't pay for it twice.
+  // (A range capped under a lower cap is retried.)
+  const capped = db.prepare("SELECT 1 FROM fetch_progress WHERE kind = 'wallet-cap' AND key = ? AND from_ts < ? AND to_ts > ? AND rows > ? LIMIT 1");
+  for (const [a, b] of gaps) if (capped.get(wallet, b, a, maxTx)) return false;
 
   // Covered interval so far (null = nothing yet). Gaps are adjacent to it, so it stays contiguous.
   let covered: [number, number] | null = cov ? [cov.f, cov.t] : null;

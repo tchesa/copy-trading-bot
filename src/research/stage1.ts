@@ -55,14 +55,15 @@ export interface Stage1Step {
   creditsAfter: number;
 }
 
-/** The step's formation scores, S5/S6. Reads only formation-window trades and a tape fenced at F1. */
-export async function scoreFormation(ctx: Ctx, a: StepResult, costs: CostParams, exclude: (wallet: string) => Set<string>) {
-  const { F0, F1, step } = a;
+/** Formation C and I for `wallets` (I percentiles among them). Reads only formation-window trades and a tape fenced at F1. */
+export async function formationScores(
+  ctx: Ctx, w: { step: number; F0: number; F1: number }, wallets: string[], costs: CostParams, exclude: (wallet: string) => Set<string>, roc: Map<string, number>,
+): Promise<Record<string, WalletScore>> {
+  const { F0, F1, step } = w;
   const tape = fence(ctx.oracle, F1);
   const scores: Record<string, WalletScore> = {};
   const comps = new Map<string, ImpactComponents>();
-  const roc = new Map(a.metrics.map((m) => [m.wallet, m.roc]));
-  await pool(a.eligibleWallets, ctx.concurrency, async (wallet) => {
+  await pool(wallets, ctx.concurrency, async (wallet) => {
     const trades = ctx.loader.load(wallet, F0, F1);
     const positions = buildPositions(trades, F0, F1, () => null);
     const chosen = formationBuys(positions, F0, F1, step, wallet, exclude(wallet));
@@ -92,7 +93,14 @@ export async function scoreFormation(ctx: Ctx, a: StepResult, costs: CostParams,
       comps: wc, I: null, roc: roc.get(wallet) ?? NaN,
     };
   });
-  for (const [w, I] of impactScores(comps)) scores[w]!.I = I;
+  for (const [x, I] of impactScores(comps)) scores[x]!.I = I;
+  return scores;
+}
+
+/** The step's formation scores, S5/S6. */
+export async function scoreFormation(ctx: Ctx, a: StepResult, costs: CostParams, exclude: (wallet: string) => Set<string>) {
+  const roc = new Map(a.metrics.map((m) => [m.wallet, m.roc]));
+  const scores = await formationScores(ctx, a, a.eligibleWallets, costs, exclude, roc);
   const by = (ws: string[], k: (w: string) => number) =>
     ws.filter((w) => Number.isFinite(k(w))).sort((x, y) => k(y) - k(x) || (x < y ? -1 : 1)).slice(0, STAGE1.topN);
   const el = [...a.eligibleWallets].sort();
@@ -104,12 +112,19 @@ export async function scoreFormation(ctx: Ctx, a: StepResult, costs: CostParams,
   return { scores, rankings };
 }
 
-/** Eval replication: up to evalBuys buys per wallet in the first eval week, all delays (Phase A replicateBuy). */
-export async function replicateEval(ctx: Ctx, a: StepResult, wallets: string[], ranked: Set<string>): Promise<ReplRecord[]> {
+/**
+ * Eval replication: up to `nBuys` buys per wallet made in [F1, F1 + days), all delays (Phase A replicateBuy).
+ * Stage 1: the first eval week, evalBuys per wallet; histories are ensured up to the longest of evalDays and days.
+ */
+export async function replicateEval(
+  ctx: Ctx, a: { step: number; F0: number; F1: number }, wallets: string[], ranked: Set<string>,
+  opt: { days?: number; nBuys?: number; seedTag?: string } = {},
+): Promise<ReplRecord[]> {
   const { F0, F1, step } = a;
   const p = { ...ctx.p, delays: [...STAGE1.delays] };
-  const maxEval = Math.max(...p.evalDays);
-  const replEnd = F1 + p.stepDays * DAY;
+  const days = opt.days ?? p.stepDays;
+  const maxEval = Math.max(...p.evalDays, days);
+  const replEnd = F1 + days * DAY;
   const tradeEnd = replEnd + p.maxHoldHours * 3600;
   const records: ReplRecord[] = [];
   await pool(wallets, ctx.concurrency, async (wallet) => {
@@ -117,7 +132,7 @@ export async function replicateEval(ctx: Ctx, a: StepResult, wallets: string[], 
     const trades = ctx.loader.load(wallet, F0, tradeEnd);
     const pos = buildPositions(trades, F1, tradeEnd, () => null).filter((x) => x.openT < replEnd && !x.tainted && !x.suspect);
     const buys = pos.flatMap((x) => x.buys.filter((b) => b.t < replEnd).map((b) => ({ x, b })));
-    const chosen = sample(buys, STAGE1.evalBuys, rng(hashSeed("eval20", step, wallet)));
+    const chosen = sample(buys, opt.nBuys ?? STAGE1.evalBuys, rng(hashSeed(opt.seedTag ?? "eval20", step, wallet)));
     const group = ranked.has(wallet) ? "ranked" : "random";
     for (const { x, b } of chosen) {
       const rec = await replicateBuy(ctx.oracle, p, step, group, {}, x, b, false);

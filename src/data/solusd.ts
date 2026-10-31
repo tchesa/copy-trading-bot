@@ -40,11 +40,18 @@ export class SolUsd {
   }
   /** Close of the last complete hour before t (never the hour containing t). */
   at(t: number): number {
+    const p = this.tryAt(t);
+    if (p !== null) return p;
+    throw new Error(`no SOL/USD price near ${new Date(t * 1000).toISOString()}`);
+  }
+
+  /** Like at(), but null when no hour within 48 h before t is stored (e.g. before the SOL/USD backfill starts). */
+  tryAt(t: number): number | null {
     let h = Math.floor(t / H) * H - H;
     for (let i = 0; i < 48; i++, h -= H) {
       const p = this.hours.get(h);
       if (p !== undefined) return p;
     }
-    throw new Error(`no SOL/USD price near ${new Date(t * 1000).toISOString()}`);
+    return null;
   }
 }

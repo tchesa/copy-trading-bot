@@ -250,3 +250,17 @@ What it means:
 Reports: `reports/2026-10-29T21-45-44-coverage.*`, `reports/*-score-estimate.*`, `reports/2026-10-29T23-27-15-copyability.*`. Reproduce (cached, no credits): `pnpm feasibility`, `pnpm coverage`, `pnpm score --report-only`.
 
 **Project verdict stands: close it.** Three ranking families have now failed against a 5 s copier on the same data: raw PnL (speed), return on capital and consistency (rugs, costs), and copyability (no edge). The remaining Helius credits are not worth spending on this question.
+
+## 7. Follow-up: exploratory rule search, 30-day windows (`pnpm explore`)
+
+**Not pre-registered. Result: no selection rule copies profitably. The verdict stays NO-GO.** Report: `reports/2026-10-30T17-24-27-explore.md`. Credits: 6.0M (the cap). Cache: `data/explore/2684e96ad8`.
+
+**Setup.** Monthly steps, each scoring wallets on 30 days and simulating the following 30 days. Every non-bot candidate is simulated (up to 800 per month; histories up to 3000 txs), not only a top 10. That gives 474–510 wallets per month, with up to 15 replicated buys each. Leader buys under 0.01 SOL are not copied. The cap ran out during step 3, so 3 months completed (simulations from Apr 27 to Jul 26; 11,632 readable copied trades). Rules were searched on months 1–2 and tested on month 3.
+
+**Findings.**
+- **Skill persists, copying doesn't capture it.** Formation ROC predicts a wallet's own next-month ROC (Spearman 0.66), and PnL predicts it as well (0.54). The top 10 by % positive weeks or by PnL make +11% on their own buys next month. Copying them at the leader's price (0 s) keeps +5–7%, but at 1 s they lose 12–14%, and at 5 s they lose 13–15%. Random 10 wallets lose 20% at 5 s.
+- **Rule search: 145,152 rules.** These combine 14 rankings with thresholds on closed positions, entry liquidity, impact I, hold time, C > 0, recent activity, PnL concentration, positive ROC and peak capital, each taking the top 5, 10 or 25 wallets.
+  - Only 1.8% of rules were positive on the test month.
+  - The best rule on months 1–2 was no better than the best rule after shuffling results across wallets (p = 0.27).
+  - Walk-forward (pick the best rule on past months, trade it the next month): −7.2% trimmed mean (1-sided 95% LB −13.2%).
+- **The scoring algorithm was not broken, but ROC ranking was polluted by dust farms.** Wallets with about 0.1 SOL of capital, 0.003 SOL buys on one Raydium CLMM pool, and tokens moved out instead of sold showed ROC of about 20×. Copying them is a certain rug, because the pool's SOL side is drained before the copier can sell. A peak-capital threshold and the 0.01 SOL buy floor remove them.

@@ -129,7 +129,7 @@ function localMark(ctx: Ctx) {
 }
 
 /** Positions with marks fetched at `to` for anything still open (R-I2). */
-async function positionsWithMarks(ctx: Ctx, trades: Trade[], from: number, to: number): Promise<Position[]> {
+export async function positionsWithMarks(ctx: Ctx, trades: Trade[], from: number, to: number): Promise<Position[]> {
   const first = buildPositions(trades, from, to, () => null);
   const marks = new Map<string, Mark>();
   for (const p of first.filter((x) => x.closeT === null && x.markPool)) {
@@ -141,15 +141,13 @@ async function positionsWithMarks(ctx: Ctx, trades: Trade[], from: number, to: n
   return buildPositions(trades, from, to, (mint, pool, t) => (t >= to ? (marks.get(mint) ?? null) : stored(mint, pool, t)));
 }
 
-export async function runStep(ctx: Ctx, w: StepWindow): Promise<StepResult> {
-  const file = join(ctx.stepsDir, `step-${String(w.step).padStart(2, "0")}.json`);
-  if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as StepResult;
-  const { p, oracle, loader } = ctx;
+/**
+ * Discovery + bot screen + formation histories for a window: up to candidateCap wallets in seeded random order.
+ * Refuses to run on an incomplete discovery sample (it would be cached silently).
+ */
+export async function collectCandidates(ctx: Ctx, w: StepWindow) {
+  const { p } = ctx;
   const { F0, F1 } = w;
-  const rand = rng(hashSeed("step", w.step));
-  const outliers: PositionOutlier[] = [];
-
-  // 1. Discovery + screen + histories. Refuse to run on an incomplete sample (it would be cached silently).
   const sampled = ctx.db
     .prepare("SELECT COUNT(*) AS n FROM fetch_progress WHERE kind = 'sample' AND status = 'done' AND from_ts >= ? AND from_ts < ?")
     .get(F0, F1) as { n: number };
@@ -200,6 +198,21 @@ export async function runStep(ctx: Ctx, w: StepWindow): Promise<StepResult> {
     for (const x of batch) if (ok.includes(x) && candidates.length < p.candidateCap) candidates.push(x);
   }
   log.info("candidates", { step: w.step, sampled: disc.sampledWallets, screened, hft, capped, unfetched, candidates: candidates.length });
+  return { disc, candidates, screened, hft, capped, unfetched };
+}
+
+export async function runStep(ctx: Ctx, w: StepWindow): Promise<StepResult> {
+  const file = join(ctx.stepsDir, `step-${String(w.step).padStart(2, "0")}.json`);
+  if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as StepResult;
+  const { p, oracle, loader } = ctx;
+  const { F0, F1 } = w;
+  const rand = rng(hashSeed("step", w.step));
+  const outliers: PositionOutlier[] = [];
+
+  // 1. Discovery + screen + histories.
+  const c = await collectCandidates(ctx, w);
+  const { disc, candidates, screened, hft, capped } = c;
+  let unfetched = c.unfetched;
 
   // 2. Formation metrics (local marks), exclusions, eligibility
   const excluded: Record<string, number> = {};

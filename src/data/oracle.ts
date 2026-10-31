@@ -56,10 +56,14 @@ interface RawRow {
   pool_quote_reserve: number | null;
 }
 
-/** Convert a quote amount to SOL at time t. Non-SOL, non-stable quotes return null. */
+/** Convert a quote amount to SOL at time t. Non-SOL, non-stable quotes, and stable quotes with no SOL/USD price
+ * stored for that time (before the backfill starts), return null. */
 export function toSol(amount: number, mint: string | null, t: number, solUsd: SolUsd): number | null {
   if (mint === WSOL) return amount;
-  if (mint && STABLES.has(mint)) return amount / solUsd.at(t);
+  if (mint && STABLES.has(mint)) {
+    const p = solUsd.tryAt(t);
+    return p === null ? null : amount / p;
+  }
   return null;
 }
 
