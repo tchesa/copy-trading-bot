@@ -19,6 +19,7 @@
     "score": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/score.ts",
     "explore": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/explore.ts",
     "check-data": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/audit.ts",
+    "weekly": "node --no-warnings=ExperimentalWarning --import tsx src/scripts/weekly.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

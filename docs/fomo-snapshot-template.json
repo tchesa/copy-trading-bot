@@ -1,0 +1,21 @@
+{
+  "takenAt": "2026-11-02T09:30:00-03:00",
+  "board": "30D leaderboard, Tokens",
+  "traders": [
+    {
+      "handle": "exampleTrader",
+      "rank": 1,
+      "wallet": null,
+      "trades": [
+        { "mint": "PASTE_SOLANA_MINT_FROM_THE_TRADE_TOKEN_LINK", "text": "Buy +$87.05 Oct 30, 10:05 AM 18.5M at $7.99K MC" },
+        { "mint": "PASTE_SOLANA_MINT_FROM_THE_TRADE_TOKEN_LINK", "text": "Sell -$644.76 Oct 30, 10:06 AM 130.5M" }
+      ]
+    },
+    {
+      "handle": "traderWithKnownWallet",
+      "rank": 2,
+      "wallet": "PASTE_WALLET_ADDRESS_IF_KNOWN",
+      "trades": []
+    }
+  ]
+}
